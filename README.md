@@ -106,6 +106,25 @@ python3 vinted_scanner.py
 
 The script will check for new items based on your queries and send notifications accordingly.
 
+### Dry-run mode
+
+To check the configured searches without sending e-mail, Slack, or Telegram
+notifications, use:
+
+```bash
+python3 vinted_scanner.py --dry-run
+```
+
+New items are printed in the terminal and are still saved in the local
+`vinted_items.txt` database. Consequently, they will be considered already
+analyzed during subsequent executions.
+
+To display all available command-line options:
+
+```bash
+python3 vinted_scanner.py -h
+```
+
 ### Automation with Cron
 
 To run the script periodically, you can set up a cron job. For example, to run the script every hour:
@@ -126,7 +145,7 @@ This will run the script every hour and log the output to `logfile.log`.
 
 Logs are stored in the `vinted_scanner.log` file. The script uses a rotating log handler to ensure that logs don't grow too large.
 
-c### Contributing and Supporting the Project
+### Contributing and Supporting the Project
 
 There are two ways you can contribute to the development of **Tosint**:
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import sys
 import time
 import json
@@ -40,6 +41,24 @@ headers = {
     "Pragma": "no-cache",
     "Cache-Control": "no-cache",
 }
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description=(
+            "Search Vinted for new items and send the configured notifications."
+        )
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "show new items without sending notifications; "
+            "found items are still saved in the local database"
+        ),
+    )
+    return parser.parse_args()
+
 
 # Load previously analyzed item hashes to avoid duplicates
 def load_analyzed_item():
@@ -156,57 +175,153 @@ def send_telegram_message(item_title, item_price, item_url, item_image):
     except requests.exceptions.RequestException as e:
         logging.error(f"Error sending Telegram message: {e}")
 
-def main():
+
+def get_catalog_items(session, params):
+    """Return the catalog items, or an empty list if Vinted returns an error."""
+    catalog_url = f"{Config.vinted_url}/api/v2/catalog/items"
+
+    try:
+        response = session.get(
+            catalog_url,
+            params=params,
+            headers=headers,
+            timeout=timeoutconnection,
+        )
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        logging.error("Vinted catalog request failed: %s", e)
+        return []
+
+    try:
+        data = response.json()
+    except requests.exceptions.JSONDecodeError:
+        logging.error(
+            "Vinted returned a non-JSON response (HTTP %s): %.200s",
+            response.status_code,
+            response.text,
+        )
+        return []
+
+    if not isinstance(data, dict):
+        logging.error(
+            "Unexpected Vinted response type: expected an object, got %s",
+            type(data).__name__,
+        )
+        return []
+
+    items = data.get("items")
+    if not isinstance(items, list):
+        error_message = data.get("message") or data.get("error") or "unknown error"
+        logging.error(
+            "Vinted response does not contain a valid 'items' list "
+            "(HTTP %s, message: %s, keys: %s)",
+            response.status_code,
+            error_message,
+            ", ".join(sorted(data.keys())),
+        )
+        return []
+
+    return items
+
+
+def print_dry_run_item(item_title, item_price, item_url, item_image):
+    print(f"Titolo: {item_title}")
+    print(f"Prezzo: {item_price}")
+    print(f"URL: {item_url}")
+    if item_image:
+        print(f"Immagine: {item_image}")
+    print()
+
+
+def main(dry_run=False):
     # Load the list of previously analyzed items
     load_analyzed_item()
 
     # Initialize session and obtain session cookies from Vinted
     session = requests.Session()
-    session.post(Config.vinted_url, headers=headers, timeout=timeoutconnection)
-    cookies = session.cookies.get_dict()
-    
+    try:
+        response = session.get(
+            Config.vinted_url,
+            headers=headers,
+            timeout=timeoutconnection,
+        )
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        logging.error("Unable to initialize the Vinted session: %s", e)
+        return
+
     # Loop through each search query defined in Config.py
     for params in Config.queries:
-        # Request items from the Vinted API based on the search parameters
-        response = requests.get(f"{Config.vinted_url}/api/v2/catalog/items", params=params, cookies=cookies, headers=headers)
+        # Request and validate items returned by the Vinted API
+        for item in get_catalog_items(session, params):
+            if not isinstance(item, dict):
+                logging.warning("Skipping an invalid catalog item: %r", item)
+                continue
 
-        data = response.json()
+            item_id = item.get("id")
+            item_title = item.get("title")
+            item_url = item.get("url")
+            if item_id is None or not item_title or not item_url:
+                logging.warning(
+                    "Skipping an incomplete catalog item (id: %r)",
+                    item_id,
+                )
+                continue
 
-        if data:
-            # Process each item returned in the response
-            for item in data["items"]:
-                item_id = str(item["id"])
-                item_title = item["title"]
-                item_url = item["url"]
-                item_price_data = item.get("price") or {}
-                item_amount = item_price_data.get("amount")
-                item_currency = item_price_data.get("currency_code")
-                if item_amount is not None and item_currency:
-                    item_price = f"{item_amount} {item_currency}"
+            item_id = str(item_id)
+            item_price_data = item.get("price") or {}
+            if not isinstance(item_price_data, dict):
+                item_price_data = {}
+            item_amount = item_price_data.get("amount")
+            item_currency = item_price_data.get("currency_code")
+            if item_amount is not None and item_currency:
+                item_price = f"{item_amount} {item_currency}"
+            else:
+                item_price = "N/D"
+
+            item_photo = item.get("photo") or {}
+            if not isinstance(item_photo, dict):
+                item_photo = {}
+            item_image = item_photo.get("full_size_url")
+
+            # Check if the item has already been analyzed to prevent duplicates
+            if item_id not in list_analyzed_items:
+
+                if dry_run:
+                    print_dry_run_item(
+                        item_title,
+                        item_price,
+                        item_url,
+                        item_image,
+                    )
                 else:
-                    item_price = "N/D"
-
-                item_photo = item.get("photo") or {}
-                item_image = item_photo.get("full_size_url")
-
-                # Check if the item has already been analyzed to prevent duplicates
-                if item_id not in list_analyzed_items:
-
                     # Send e-mail notifications if configured
                     if Config.smtp_username and Config.smtp_server:
-                        send_email(item_title, item_price,item_url, item_image)
+                        send_email(item_title, item_price, item_url, item_image)
 
                     # Send Slack notifications if configured
                     if Config.slack_webhook_url:
-                        send_slack_message(item_title, item_price, item_url, item_image)
+                        send_slack_message(
+                            item_title,
+                            item_price,
+                            item_url,
+                            item_image,
+                        )
 
                     # Send Telegram notifications if configured
                     if Config.telegram_bot_token and Config.telegram_chat_id:
-                        send_telegram_message(item_title, item_price, item_url, item_image)
+                        send_telegram_message(
+                            item_title,
+                            item_price,
+                            item_url,
+                            item_image,
+                        )
 
-                    # Mark item as analyzed and save it
-                    list_analyzed_items.append(item_id)
-                    save_analyzed_item(item_id)
+                # Mark item as analyzed and save it
+                list_analyzed_items.append(item_id)
+                save_analyzed_item(item_id)
+
 
 if __name__ == "__main__":
-    main()
+    args = parse_arguments()
+    main(dry_run=args.dry_run)

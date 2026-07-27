@@ -225,11 +225,11 @@ def get_catalog_items(session, params):
 
 
 def print_dry_run_item(item_title, item_price, item_url, item_image):
-    print(f"Titolo: {item_title}")
-    print(f"Prezzo: {item_price}")
+    print(f"Title: {item_title}")
+    print(f"Price: {item_price}")
     print(f"URL: {item_url}")
     if item_image:
-        print(f"Immagine: {item_image}")
+        print(f"Image: {item_image}")
     print()
 
 

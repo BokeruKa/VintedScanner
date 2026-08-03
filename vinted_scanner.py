@@ -7,13 +7,17 @@ import smtplib
 import logging
 import requests
 import email.utils
+import os
 from datetime import datetime
 from email.message import EmailMessage
 from logging.handlers import RotatingFileHandler
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+log_path = os.path.join(script_dir, "vinted_scanner.log")
+
 
 # Configure a rotating file handler to manage log files
-handler = RotatingFileHandler("vinted_scanner.log", maxBytes=5000000, backupCount=5)
+handler = RotatingFileHandler(log_path, maxBytes=5000000, backupCount=5)
 
 logging.basicConfig(handlers=[handler], 
                     format="%(asctime)s - %(filename)s - %(funcName)10s():%(lineno)s - %(levelname)s - %(message)s", 
@@ -43,8 +47,10 @@ headers = {
 
 # Load previously analyzed item hashes to avoid duplicates
 def load_analyzed_item():
+    
+    file_path = os.path.join(script_dir, "vinted_items.txt")
     try:
-        with open("vinted_items.txt", "r", errors="ignore") as f:
+        with open(file_path, "r", errors="ignore") as f:
             for line in f:
                 if line:
                     list_analyzed_items.append(line.rstrip())
@@ -54,8 +60,9 @@ def load_analyzed_item():
 
 # Save a new analyzed item to prevent repeated alerts
 def save_analyzed_item(hash):
+    file_path = os.path.join(script_dir, "vinted_items.txt")
     try:
-        with open("vinted_items.txt", "a") as f:
+        with open(file_path, "a") as f:
             f.write(str(hash) + "\n")
     except IOError as e:
         logging.error(e, exc_info=True)

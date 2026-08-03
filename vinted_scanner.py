@@ -194,10 +194,16 @@ def get_catalog_items(session, params):
             headers=headers,
             timeout=timeoutconnection,
         )
+
+        logging.info("HTTP Status: %s", response.status_code)
+        logging.info("Response Text: %.500s", response.text)
+
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         logging.error("Vinted catalog request failed: %s", e)
         return []
+
+    
 
     try:
         data = response.json()
@@ -216,7 +222,12 @@ def get_catalog_items(session, params):
         )
         return []
 
+    if "items" not in data:
+        logging.error(f"Unexpected response: {data}")
+        return[]
+    
     items = data.get("items")
+
     if not isinstance(items, list):
         error_message = data.get("message") or data.get("error") or "unknown error"
         logging.error(
